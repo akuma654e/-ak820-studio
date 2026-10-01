@@ -1,0 +1,8 @@
+[package]
+name = "ak820-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Protocolo HID do AJAZZ AK820 Pro (tela TFT, relogio, RGB) - sem dependencias"
+
+[dependencies]

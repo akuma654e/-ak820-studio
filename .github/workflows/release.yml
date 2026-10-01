@@ -1,0 +1,70 @@
+name: Release
+
+# Publica uma versão nova quando uma tag "v1.2.3" é enviada (scripts\release.ps1 faz isso).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Conferir chaves de assinatura
+        shell: pwsh
+        env:
+          PRIV: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          PUB: ${{ vars.TAURI_SIGNING_PUBLIC_KEY }}
+        run: |
+          if (-not $env:PRIV -or -not $env:PUB) {
+            Write-Error "Falta configurar o segredo TAURI_SIGNING_PRIVATE_KEY e a variável TAURI_SIGNING_PUBLIC_KEY. Rode scripts\setup-github.ps1."
+            exit 1
+          }
+
+      - name: Notas da versão
+        id: notes
+        shell: pwsh
+        run: |
+          $body = if (Test-Path release-notes.md) { Get-Content release-notes.md -Raw -Encoding utf8 } else { "Melhorias e correções." }
+          $delim = "EOF_" + [guid]::NewGuid().ToString("N")
+          "body<<$delim`n$body`n$delim" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - run: npm ci
+
+      - name: Testes
+        run: |
+          npm test
+          cargo test -p ak820-core
+
+      - name: Compilar, assinar e publicar
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          AK820_UPDATE_REPO: ${{ github.repository }}
+          AK820_UPDATE_PUBKEY: ${{ vars.TAURI_SIGNING_PUBLIC_KEY }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: "AK820 Studio ${{ github.ref_name }}"
+          releaseBody: ${{ steps.notes.outputs.body }}
+          releaseDraft: false
+          prerelease: false
+          updaterJsonPreferNsis: true
+          args: --config src-tauri/tauri.release.conf.json

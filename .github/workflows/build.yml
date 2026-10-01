@@ -1,0 +1,43 @@
+name: Build Windows
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Testes
+        run: |
+          npm test
+          cargo test -p ak820-core
+
+      - name: Build do instalador
+        run: npm run tauri build
+
+      - name: Publicar instaladores
+        uses: actions/upload-artifact@v4
+        with:
+          name: AK820-Studio-Windows
+          path: |
+            target/release/bundle/nsis/*.exe
+            target/release/bundle/msi/*.msi

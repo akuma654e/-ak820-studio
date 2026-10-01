@@ -1,0 +1,10 @@
+node_modules
+dist
+target
+src-tauri/gen
+*.log
+
+# chaves de assinatura nunca vão para o repositório
+*.key
+*.key.pub
+*.password.txt
