@@ -1,6 +1,6 @@
 [package]
 name = "ak820-studio"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 license = "MIT"
 description = "AK820 Studio - software alternativo para a tela e o RGB do AJAZZ AK820 Pro"

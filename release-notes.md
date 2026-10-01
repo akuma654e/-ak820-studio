@@ -1,1 +1,1 @@
-- Novo sistema com wallpaper engine
+- Correção de erros

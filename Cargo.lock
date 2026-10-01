@@ -23,7 +23,7 @@ version = "0.1.0"
 
 [[package]]
 name = "ak820-studio"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "ak820-core",
  "chrono",
