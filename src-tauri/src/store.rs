@@ -136,6 +136,10 @@ pub struct StreamConfig {
     /// Pomodoro: minutos de foco e de pausa
     pub work_min: u32,
     pub break_min: u32,
+    /// Ambilight: "screen" | "window" | "wallpaper"
+    pub ambi_source: String,
+    /// Ambilight: id do monitor, "app|título" da janela ou "windows"/"engine:Monitor0".
+    pub ambi_target: String,
 }
 
 impl Default for StreamConfig {
@@ -154,6 +158,8 @@ impl Default for StreamConfig {
             saturation: 1.4,
             work_min: 25,
             break_min: 5,
+            ambi_source: "screen".into(),
+            ambi_target: String::new(),
         }
     }
 }

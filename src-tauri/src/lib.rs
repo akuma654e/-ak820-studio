@@ -24,8 +24,6 @@ pub fn run() {
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| automation::show_main(app)))
         .plugin(tauri_plugin_autostart::init(MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .plugin(automation::shortcut_plugin())
         .setup(move |app| {
             let config_dir = app.path().app_config_dir()?;
@@ -43,7 +41,6 @@ pub fn run() {
             }
             automation::start_monitor(app.handle().clone());
             stream::start(app.handle().clone());
-            updates::check_on_startup(app.handle().clone());
             if app.state::<AppState>().settings().now_playing_enabled {
                 let _ = media::set_enabled(app.handle(), true);
             }
@@ -103,8 +100,9 @@ pub fn run() {
             commands::list_processes,
             commands::active_rule,
             commands::pomodoro_reset,
-            commands::update_check,
-            commands::update_install,
+            commands::ambilight_targets,
+            commands::update_run,
+            commands::build_info,
             commands::app_version,
         ])
         .run(tauri::generate_context!())

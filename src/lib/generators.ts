@@ -1,9 +1,20 @@
 // Geradores de conteúdo animado: letreiro, fundos animados e slideshow.
 
-import { SIZE, type Source, type SourceFrame } from "./imaging";
+import { decodeFile, planFrames, SIZE, type Source, type SourceFrame } from "./imaging";
 
 async function toFrames(canvases: { canvas: OffscreenCanvas; delay: number }[]): Promise<SourceFrame[]> {
-  return Promise.all(canvases.map(async (c) => ({ bitmap: await createImageBitmap(c.canvas), delay: c.delay })));
+  // Quadros repetidos (GIF em loop) compartilham o mesmo bitmap.
+  const cache = new Map<OffscreenCanvas, Promise<ImageBitmap>>();
+  return Promise.all(
+    canvases.map(async (c) => {
+      let b = cache.get(c.canvas);
+      if (!b) {
+        b = createImageBitmap(c.canvas);
+        cache.set(c.canvas, b);
+      }
+      return { bitmap: await b, delay: c.delay };
+    }),
+  );
 }
 
 // ------------------------------------------------------------------ letreiro
@@ -200,43 +211,94 @@ export async function background(kind: BackgroundKind, colorA: string, colorB: s
 
 // ------------------------------------------------------------------ slideshow
 
-export type SlideshowOpts = { holdMs: number; transition: "none" | "fade" | "slide"; transitionFrames: number };
+export type SlideshowOpts = {
+  holdMs: number;
+  transition: "none" | "fade" | "slide";
+  transitionFrames: number;
+  /** GIFs: tocar uma vez ou repetir até completar o tempo de cada slide */
+  gifMode: "once" | "fill";
+};
 
-/** Monta um slideshow com várias imagens (cada uma preenchendo a tela). */
-export async function slideshow(files: File[], o: SlideshowOpts): Promise<Source> {
-  const S = 256; // resolução intermediária
-  const imgs: OffscreenCanvas[] = [];
-  for (const f of files) {
-    const bmp = await createImageBitmap(f);
-    const c = new OffscreenCanvas(S, S);
-    const ctx = c.getContext("2d")!;
-    const s = Math.max(S / bmp.width, S / bmp.height);
-    ctx.imageSmoothingQuality = "high";
-    ctx.drawImage(bmp, (S - bmp.width * s) / 2, (S - bmp.height * s) / 2, bmp.width * s, bmp.height * s);
-    bmp.close();
-    imgs.push(c);
+type Slide = { canvas: OffscreenCanvas; delay: number }[];
+const SLIDE_SIZE = 256; // resolução intermediária
+const MAX_SLIDESHOW_FRAMES = 600;
+
+function coverCanvas(bmp: ImageBitmap): OffscreenCanvas {
+  const S = SLIDE_SIZE;
+  const c = new OffscreenCanvas(S, S);
+  const ctx = c.getContext("2d")!;
+  const s = Math.max(S / bmp.width, S / bmp.height);
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(bmp, (S - bmp.width * s) / 2, (S - bmp.height * s) / 2, bmp.width * s, bmp.height * s);
+  return c;
+}
+
+/** Converte um arquivo (imagem ou GIF) em um slide com seus quadros. */
+async function toSlide(file: File, o: SlideshowOpts, budget: number): Promise<Slide> {
+  const src = await decodeFile(file);
+  try {
+    if (src.frames.length <= 1) return [{ canvas: coverCanvas(src.frames[0].bitmap), delay: o.holdMs }];
+    // GIF: limita os quadros reamostrando no tempo, mantendo a velocidade original
+    const plan = planFrames(src.frames.map((f) => f.delay), 1, Math.max(2, budget));
+    const cache = new Map<number, OffscreenCanvas>();
+    const once: Slide = plan.map((p) => {
+      let c = cache.get(p.index);
+      if (!c) {
+        c = coverCanvas(src.frames[p.index].bitmap);
+        cache.set(p.index, c);
+      }
+      return { canvas: c, delay: p.delay };
+    });
+    if (o.gifMode !== "fill") return once;
+    const total = once.reduce((a, f) => a + f.delay, 0);
+    const out = [...once];
+    let t = total;
+    while (t < o.holdMs && out.length + once.length <= budget * 2) {
+      out.push(...once);
+      t += total;
+    }
+    return out;
+  } finally {
+    src.frames.forEach((f) => f.bitmap.close());
   }
-  if (!imgs.length) throw new Error("nenhuma imagem válida");
-  const out: { canvas: OffscreenCanvas; delay: number }[] = [];
+}
+
+/** Monta um slideshow com várias imagens e/ou GIFs (cada um preenchendo a tela). */
+export async function slideshow(files: File[], o: SlideshowOpts): Promise<Source> {
+  const S = SLIDE_SIZE;
+  const budget = Math.floor(MAX_SLIDESHOW_FRAMES / Math.max(1, files.length));
+  const slides: Slide[] = [];
+  for (const f of files) {
+    try {
+      slides.push(await toSlide(f, o, budget));
+    } catch {
+      /* arquivo inválido: pula */
+    }
+  }
+  if (!slides.length) throw new Error("nenhuma imagem válida");
+  const out: Slide = [];
   const tf = o.transition === "none" ? 0 : Math.max(2, o.transitionFrames);
-  imgs.forEach((img, i) => {
-    out.push({ canvas: img, delay: o.holdMs });
-    const next = imgs[(i + 1) % imgs.length];
-    if (imgs.length < 2) return;
+  slides.forEach((slide, i) => {
+    out.push(...slide);
+    if (slides.length < 2) return;
+    const from = slide[slide.length - 1].canvas;
+    const to = slides[(i + 1) % slides.length][0].canvas;
     for (let k = 1; k <= tf; k++) {
       const p = k / (tf + 1);
       const c = new OffscreenCanvas(S, S);
       const ctx = c.getContext("2d")!;
       if (o.transition === "fade") {
-        ctx.drawImage(img, 0, 0);
+        ctx.drawImage(from, 0, 0);
         ctx.globalAlpha = p;
-        ctx.drawImage(next, 0, 0);
+        ctx.drawImage(to, 0, 0);
       } else {
-        ctx.drawImage(img, -p * S, 0);
-        ctx.drawImage(next, S - p * S, 0);
+        ctx.drawImage(from, -p * S, 0);
+        ctx.drawImage(to, S - p * S, 0);
       }
       out.push({ canvas: c, delay: 70 });
     }
   });
-  return { name: `Slideshow (${imgs.length} imagens)`, width: S, height: S, frames: await toFrames(out), animated: out.length > 1, truncated: false };
+  const gifs = files.filter((f) => /gif|webp/i.test(f.type || f.name)).length;
+  const label = gifs ? `${files.length} itens, ${gifs} animado${gifs > 1 ? "s" : ""}` : `${files.length} imagens`;
+  return { name: `Slideshow (${label})`, width: S, height: S, frames: await toFrames(out), animated: out.length > 1, truncated: false };
 }

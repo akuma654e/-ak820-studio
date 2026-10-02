@@ -59,7 +59,6 @@ pub struct AppState {
     /// Regra de programa ativa e o que restaurar quando ele fechar.
     pub active_rule: Mutex<Option<String>>,
     pub rule_restore: Mutex<Option<(Option<StreamConfig>, Option<String>)>>,
-    pub pending_update: Mutex<Option<tauri_plugin_updater::Update>>,
 }
 
 impl AppState {
@@ -83,7 +82,6 @@ impl AppState {
             pomodoro_start: Mutex::new(Instant::now()),
             active_rule: Mutex::new(None),
             rule_restore: Mutex::new(None),
-            pending_update: Mutex::new(None),
         }
     }
 

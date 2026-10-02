@@ -1,6 +1,6 @@
 [package]
 name = "ak820-studio"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 license = "MIT"
 description = "AK820 Studio - software alternativo para a tela e o RGB do AJAZZ AK820 Pro"
@@ -19,10 +19,9 @@ tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
-tauri-plugin-updater = "2"
-tauri-plugin-process = "2"
 cpal = "0.16"
 realfft = "3.5"
+image = { version = "0.25", default-features = false, features = ["gif", "jpeg", "png", "webp", "bmp"] }
 sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

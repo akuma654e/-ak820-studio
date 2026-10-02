@@ -1,61 +1,55 @@
-﻿# Publica uma versão nova do AK820 Studio. O GitHub compila e o app de todo
-# mundo se atualiza sozinho.
+﻿# Envia as mudanças do código para o GitHub. Quem tiver o AK820 Studio
+# instalado por clone recebe o aviso "Atualização disponível" no app.
 #   powershell -ExecutionPolicy Bypass -File scripts\release.ps1
-#   powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -Version 0.4.0 -Notes "Correção do Wallpaper Engine"
+#   powershell -ExecutionPolicy Bypass -File scripts\release.ps1 -Message "Ambilight por janela" -Version 0.4.0
 
 param(
-    [string]$Version = "",
-    [string]$Notes = ""
+    [string]$Message = "",
+    [string]$Version = ""
 )
 
-$ErrorActionPreference = "Continue"  # comandos externos (git, gh) escrevem avisos no stderr
+$ErrorActionPreference = "Continue"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 $utf8 = New-Object System.Text.UTF8Encoding $false
-
-function ReadText($p) { [System.IO.File]::ReadAllText((Resolve-Path $p), $utf8) }
+function ReadText($p) { [System.IO.File]::ReadAllText((Join-Path (Get-Location) $p), $utf8) }
 function WriteText($p, $t) { [System.IO.File]::WriteAllText((Join-Path (Get-Location) $p), $t, $utf8) }
 
-if (-not (Test-Path .git)) { throw "Rode primeiro scripts\setup-github.ps1" }
+if (-not (Test-Path .git)) { throw "Esta pasta não é um clone do GitHub. Use: gh repo clone akuma654e/-ak820-studio" }
+
+$changes = git status --porcelain
+if (-not $changes) {
+    Write-Host "Nada mudou desde o último envio." -ForegroundColor Yellow
+    exit 0
+}
+Write-Host "Arquivos alterados:" -ForegroundColor Cyan
+git status --short
 
 $current = (ReadText "package.json" | ConvertFrom-Json).version
 if (-not $Version) {
-    $p = $current.Split(".")
-    $suggest = "$($p[0]).$($p[1]).$([int]$p[2] + 1)"
-    $answer = Read-Host "Versão atual: $current. Nova versão [$suggest]"
-    $Version = if ($answer) { $answer.Trim().TrimStart("v") } else { $suggest }
+    $Version = (Read-Host "Versão atual: $current. Nova versão (Enter para manter)").Trim().TrimStart("v")
 }
-if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Versão inválida: $Version (use o formato 1.2.3)" }
-if ([version]$Version -le [version]$current) { throw "A nova versão ($Version) precisa ser maior que a atual ($current)" }
-
-if (-not $Notes) {
-    Write-Host "O que mudou nesta versão? (uma linha por item; linha vazia termina)"
-    $lines = @()
-    while ($true) {
-        $l = Read-Host "-"
-        if (-not $l) { break }
-        $lines += "- $l"
-    }
-    $Notes = if ($lines.Count) { $lines -join "`n" } else { "Melhorias e correções." }
+if ($Version -and $Version -ne $current) {
+    if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "Versão inválida: $Version (use 1.2.3)" }
+    WriteText "package.json" ((ReadText "package.json") -replace '"version":\s*"[^"]+"', "`"version`": `"$Version`"")
+    WriteText "src-tauri/tauri.conf.json" ((ReadText "src-tauri/tauri.conf.json") -replace '"version":\s*"[^"]+"', "`"version`": `"$Version`"")
+    $cargo = ReadText "src-tauri/Cargo.toml"
+    WriteText "src-tauri/Cargo.toml" (([regex]'(?m)^version = "[^"]+"').Replace($cargo, "version = `"$Version`"", 1))
+} else {
+    $Version = $current
 }
-WriteText "release-notes.md" "$Notes`n"
 
-# Atualiza a versão nos três arquivos
-WriteText "package.json" ((ReadText "package.json") -replace '"version":\s*"[^"]+"', "`"version`": `"$Version`"")
-WriteText "src-tauri/tauri.conf.json" ((ReadText "src-tauri/tauri.conf.json") -replace '"version":\s*"[^"]+"', "`"version`": `"$Version`"")
-$cargo = ReadText "src-tauri/Cargo.toml"
-$cargo = ([regex]'(?m)^version = "[^"]+"').Replace($cargo, "version = `"$Version`"", 1)
-WriteText "src-tauri/Cargo.toml" $cargo
+if (-not $Message) { $Message = (Read-Host "O que mudou? (vira a mensagem da atualização)").Trim() }
+if (-not $Message) { $Message = "Melhorias e correções" }
+
+# Histórico de mudanças
+$entry = "`n## $Version - $(Get-Date -Format 'yyyy-MM-dd')`n- $Message`n"
+$old = if (Test-Path CHANGELOG.md) { (ReadText "CHANGELOG.md") -replace '^# Mudanças\s*', '' } else { "" }
+WriteText "CHANGELOG.md" ("# Mudanças`n" + $entry + "`n" + $old)
 
 git add -A
-git commit -m "v$Version" | Out-Null
-git tag "v$Version"
-git push origin HEAD
-git push origin "v$Version"
-if ($LASTEXITCODE -ne 0) { throw "Falha ao enviar para o GitHub" }
+git commit -m $Message | Out-Null
+git push
+if ($LASTEXITCODE -ne 0) { throw "Falha ao enviar para o GitHub (rode 'git pull' e tente de novo)." }
 
-$repo = ((git config --get remote.origin.url) -replace '^.*github\.com[:/]', '' -replace '\.git$', '')
 Write-Host ""
-Write-Host "Versão $Version enviada! O GitHub está compilando (uns 10-15 minutos)." -ForegroundColor Green
-Write-Host "Acompanhe em: https://github.com/$repo/actions"
-Write-Host "Quando terminar, o AK820 Studio avisa que tem atualização."
-Start-Process "https://github.com/$repo/actions"
+Write-Host "Enviado! O app vai avisar 'Atualização disponível' na próxima vez que procurar." -ForegroundColor Green

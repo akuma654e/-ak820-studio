@@ -1,133 +1,60 @@
-//! Atualização automática pelo GitHub Releases.
+//! Atualização a partir do código-fonte no GitHub.
 //!
-//! O repositório e a chave pública de assinatura são gravados no programa
-//! durante a compilação feita pelo GitHub Actions (variáveis de ambiente
-//! `AK820_UPDATE_REPO` e `AK820_UPDATE_PUBKEY`). Numa compilação local, sem
-//! essas variáveis, as atualizações ficam desligadas.
+//! O app é compilado no próprio PC a partir de um clone do repositório
+//! (scripts\update.ps1). Na compilação ficam gravados o commit, o repositório
+//! e a pasta do código. A interface compara esse commit com o último do GitHub
+//! e, se houver novidade, este módulo abre o update.ps1, que faz `git pull`,
+//! compila, fecha o app, troca o executável e abre de novo.
 
-use crate::state::{self, AppState};
 use serde::Serialize;
-use tauri::{AppHandle, Emitter, Manager};
-use tauri_plugin_updater::UpdaterExt;
-
-pub const REPO: Option<&str> = option_env!("AK820_UPDATE_REPO");
-pub const PUBKEY: Option<&str> = option_env!("AK820_UPDATE_PUBKEY");
+use std::path::PathBuf;
+use std::process::Command;
+use tauri::AppHandle;
 
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct UpdateStatus {
-    pub current: String,
-    /// false = compilação local, sem atualização automática.
-    pub enabled: bool,
-    pub repo: Option<String>,
-    pub available: Option<UpdateInfo>,
-}
-
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateInfo {
+pub struct BuildInfo {
     pub version: String,
-    pub notes: String,
-    pub date: Option<String>,
+    pub commit: String,
+    /// "usuario/repositorio" (vazio se o código não veio de um clone do GitHub)
+    pub repo: String,
+    pub branch: String,
+    pub source_dir: String,
+    /// true se a pasta do código ainda existe e tem o script de atualização
+    pub can_update: bool,
 }
 
-#[derive(Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DownloadProgress {
-    downloaded: u64,
-    total: Option<u64>,
+fn script() -> PathBuf {
+    PathBuf::from(env!("AK820_SOURCE_DIR")).join("scripts").join("update.ps1")
 }
 
-fn configured() -> Option<(&'static str, &'static str)> {
-    match (REPO.filter(|r| r.contains('/')), PUBKEY.filter(|k| !k.trim().is_empty())) {
-        (Some(r), Some(k)) => Some((r, k)),
-        _ => None,
+pub fn info(app: &AppHandle) -> BuildInfo {
+    BuildInfo {
+        version: app.package_info().version.to_string(),
+        commit: env!("AK820_GIT_COMMIT").to_string(),
+        repo: env!("AK820_GIT_REPO").to_string(),
+        branch: env!("AK820_GIT_BRANCH").to_string(),
+        source_dir: env!("AK820_SOURCE_DIR").to_string(),
+        can_update: script().is_file(),
     }
 }
 
-fn endpoint(repo: &str) -> String {
-    format!("https://github.com/{repo}/releases/latest/download/latest.json")
-}
-
-fn updater(app: &AppHandle) -> Result<tauri_plugin_updater::Updater, String> {
-    let (repo, key) = configured().ok_or("atualizações automáticas desligadas nesta compilação local")?;
-    let url = endpoint(repo).parse().map_err(|e| format!("endereço de atualização inválido: {e}"))?;
-    app.updater_builder()
-        .endpoints(vec![url])
-        .map_err(|e| e.to_string())?
-        .pubkey(key)
-        .build()
-        .map_err(|e| e.to_string())
-}
-
-pub fn current(app: &AppHandle) -> String {
-    app.package_info().version.to_string()
-}
-
-pub async fn check(app: &AppHandle) -> Result<UpdateStatus, String> {
-    let cur = current(app);
-    let Some((repo, _)) = configured() else {
-        return Ok(UpdateStatus { current: cur, enabled: false, repo: None, available: None });
-    };
-    let upd = updater(app)?.check().await.map_err(|e| format!("não consegui procurar atualizações: {e}"))?;
-    let available = upd.as_ref().map(|u| UpdateInfo {
-        version: u.version.clone(),
-        notes: u.body.clone().unwrap_or_default(),
-        date: u.date.map(|d| d.to_string()),
-    });
-    *app.state::<AppState>().pending_update.lock().unwrap() = upd;
-    Ok(UpdateStatus { current: cur, enabled: true, repo: Some(repo.to_string()), available })
-}
-
-/// Baixa, instala e reinicia. No Windows o instalador fecha o app sozinho.
-pub async fn install(app: &AppHandle) -> Result<(), String> {
-    let upd = app.state::<AppState>().pending_update.lock().unwrap().take();
-    let upd = match upd {
-        Some(u) => u,
-        None => updater(app)?.check().await.map_err(|e| e.to_string())?.ok_or("nenhuma atualização disponível")?,
-    };
-    state::log(app, "info", format!("Baixando a versão {}…", upd.version));
-    // Para o RGB do PC e o PowerShell antes de o instalador substituir os arquivos.
-    state::set_stream(app, None);
-    let _ = crate::media::set_enabled(app, false);
-    let mut downloaded: u64 = 0;
-    let app2 = app.clone();
-    upd.download_and_install(
-        move |chunk, total| {
-            downloaded += chunk as u64;
-            let _ = app2.emit("update-progress", DownloadProgress { downloaded, total });
-        },
-        || {},
-    )
-    .await
-    .map_err(|e| format!("falha ao instalar a atualização: {e}"))?;
-    app.restart();
-}
-
-/// Procura atualização ao abrir o app (se ligado nas configurações).
-pub fn check_on_startup(app: AppHandle) {
-    if configured().is_none() || !app.state::<AppState>().settings().auto_update_check {
-        return;
+pub fn run(_app: &AppHandle) -> Result<(), String> {
+    let s = script();
+    if !s.is_file() {
+        return Err(format!("não encontrei {} — a pasta do código foi movida? Rode o update.ps1 na nova pasta.", s.display()));
     }
-    tauri::async_runtime::spawn(async move {
-        tokio_sleep(8).await;
-        if let Ok(s) = check(&app).await {
-            if let Some(info) = s.available {
-                state::log(&app, "info", format!("Nova versão disponível: {}", info.version));
-                let _ = app.emit("update-available", info);
-            }
-        }
-    });
-}
-
-async fn tokio_sleep(secs: u64) {
-    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(std::time::Duration::from_secs(secs))).await;
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn endpoint_format() {
-        assert_eq!(super::endpoint("akuma/ak820-studio"), "https://github.com/akuma/ak820-studio/releases/latest/download/latest.json");
+    // Janela visível do PowerShell para acompanhar o git pull e a compilação.
+    // O script fecha o app só no final, para trocar o executável.
+    let mut cmd = Command::new("powershell.exe");
+    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&s)
+        .arg("-FromApp")
+        .current_dir(env!("AK820_SOURCE_DIR"));
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        cmd.creation_flags(0x0000_0010); // CREATE_NEW_CONSOLE
     }
+    cmd.spawn().map(|_| ()).map_err(|e| format!("não consegui abrir o PowerShell: {e}"))
 }

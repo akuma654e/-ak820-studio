@@ -50,6 +50,12 @@ export type StreamConfig = {
   saturation: number;
   workMin: number;
   breakMin: number;
+  ambiSource: "screen" | "window" | "wallpaper";
+  ambiTarget: string;
+};
+export type AmbiTargets = {
+  monitors: { id: string; name: string; primary: boolean; width: number; height: number }[];
+  windows: { key: string; app: string; title: string }[];
 };
 export type AppRule = { id: string; enabled: boolean; process: string; action: "profile" | "screen" | "stream" | "lightsOff"; target: string | null };
 export type NowPlaying = { title: string; artist: string; album: string; app: string; playing: boolean; thumb: string };
@@ -82,8 +88,7 @@ export type Settings = {
   ui: UiPrefs;
   autoUpdateCheck: boolean;
 };
-export type UpdateInfo = { version: string; notes: string; date: string | null };
-export type UpdateStatus = { current: string; enabled: boolean; repo: string | null; available: UpdateInfo | null };
+export type BuildInfo = { version: string; commit: string; repo: string; branch: string; sourceDir: string; canUpdate: boolean };
 export type GalleryItem = {
   id: string;
   name: string;
@@ -457,20 +462,32 @@ export const api3 = {
     if (!isTauri) return null;
     return call("active_rule");
   },
-  async updateCheck(): Promise<UpdateStatus> {
-    if (!isTauri) {
-      await sleep(500);
-      return { current: "0.3.0", enabled: true, repo: "voce/ak820-studio", available: { version: "0.4.0", notes: "Exemplo de novidades da versão (simulação).", date: null } };
-    }
-    return call("update_check");
+  async buildInfo(): Promise<BuildInfo> {
+    if (!isTauri) return { version: "0.3.0", commit: "0000000000000000000000000000000000000000", repo: "akuma654e/-ak820-studio", branch: "main", sourceDir: "C:\\Users\\voce\\-ak820-studio", canUpdate: true };
+    return call("build_info");
   },
-  async updateInstall(): Promise<void> {
-    if (!isTauri) throw new Error("Simulação: no app de verdade ele baixaria e reiniciaria.");
-    return call("update_install");
+  async updateRun(): Promise<void> {
+    if (!isTauri) throw new Error("Simulação: no app de verdade abriria o PowerShell com git pull + compilação.");
+    return call("update_run");
   },
   async appVersion(): Promise<string> {
     if (!isTauri) return "0.3.0";
     return call("app_version");
+  },
+  async ambilightTargets(): Promise<AmbiTargets> {
+    if (!isTauri)
+      return {
+        monitors: [
+          { id: "65537", name: "\\\\.\\DISPLAY1", primary: true, width: 2560, height: 1440 },
+          { id: "65539", name: "\\\\.\\DISPLAY2", primary: false, width: 1920, height: 1080 },
+        ],
+        windows: [
+          { key: "chrome.exe|YouTube - Google Chrome", app: "chrome.exe", title: "YouTube - Google Chrome" },
+          { key: "Spotify.exe|Spotify Premium", app: "Spotify.exe", title: "Spotify Premium" },
+          { key: "VALORANT.exe|VALORANT", app: "VALORANT.exe", title: "VALORANT" },
+        ],
+      };
+    return call("ambilight_targets");
   },
   async pomodoroReset(): Promise<void> {
     if (!isTauri) return;
@@ -524,5 +541,3 @@ export const onScreenChanged = (cb: (id: string) => void) => on("screen-changed"
 export const onNowPlaying = (cb: (n: NowPlaying | null) => void) => on("now-playing", cb, mock.npL);
 export const onWallpaperChanged = (cb: (source: string) => void) => on("wallpaper-changed", cb);
 export const onActiveRule = (cb: (id: string | null) => void) => on("active-rule", cb);
-export const onUpdateAvailable = (cb: (u: UpdateInfo) => void) => on("update-available", cb);
-export const onUpdateProgress = (cb: (p: { downloaded: number; total: number | null }) => void) => on("update-progress", cb);

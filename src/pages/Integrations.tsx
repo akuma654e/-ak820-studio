@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useApp } from "../App";
-import { api, api3, isTauri, onStream, type Settings, type StreamConfig, type UiPrefs, type WallpaperInfo } from "../lib/api";
+import { api, api3, isTauri, onStream, type AmbiTargets, type Settings, type StreamConfig, type UiPrefs, type WallpaperInfo } from "../lib/api";
 import { NP_TEMPLATES, searchCity, WEATHER_TEMPLATES, type Place } from "../lib/cards";
 import { colorOf, coverBitmap, lightingWithColor, loadWallpaper, renderFile, renderNP, renderWeatherFor, upload } from "../lib/integrations";
 import { MUSIC_STYLES, MusicPreview } from "../lib/pcfx";
@@ -353,23 +353,114 @@ function WallpaperTab() {
 
       <Card
         title="Ambilight"
-        subtitle="As teclas copiam as cores da tela do PC em tempo real: o lado esquerdo do monitor vira o lado esquerdo do teclado. Funciona com Wallpaper Engine, vídeos e jogos."
+        subtitle="As teclas copiam as cores em tempo real: o lado esquerdo da imagem vira o lado esquerdo do teclado."
         actions={<StreamButton active={active} online={online} toggle={toggle} label="Ligar" />}
       >
         {otherActive && <p className="small warn">Outro modo do RGB do PC está ligado; ligar este vai substituí-lo.</p>}
-        <div className="ambi-demo" aria-hidden>
-          <div className="ambi-monitor">
-            <span />
-          </div>
-          <Icon name="next" />
-          <div className="ambi-kb">
-            <span />
-          </div>
-        </div>
+        <AmbiSourcePicker cfg={cfg} p={p} wallSource={w.source} wallMonitor={w.monitor} />
         <Slider label="Saturação" value={cfg.saturation} min={0.5} max={3} step={0.1} onChange={(saturation) => p({ saturation })} format={(v) => `${v.toFixed(1)}×`} />
         <Slider label="Brilho" value={cfg.brightness} min={0.1} max={1} step={0.05} onChange={(brightness) => p({ brightness })} format={(v) => `${Math.round(v * 100)}%`} />
-        <p className="small muted">Usa o monitor principal. Gasta um pouco de CPU enquanto estiver ligado.</p>
+        <p className="small muted">{cfg.ambiSource === "wallpaper" ? "Lê só a imagem do wallpaper: quase não gasta CPU." : "Gasta um pouco de CPU enquanto estiver ligado."}</p>
       </Card>
+    </div>
+  );
+}
+
+function AmbiSourcePicker({ cfg, p, wallSource, wallMonitor }: { cfg: StreamConfig; p: (x: Partial<StreamConfig>) => void; wallSource: "windows" | "engine"; wallMonitor?: string }) {
+  const { toast } = useApp();
+  const [targets, setTargets] = useState<AmbiTargets | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      setTargets(await api3.ambilightTargets());
+    } catch (e) {
+      toast("error", (e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (cfg.ambiSource !== "wallpaper" && !targets) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cfg.ambiSource]);
+
+  const setSource = (ambiSource: StreamConfig["ambiSource"]) => {
+    let ambiTarget = "";
+    if (ambiSource === "screen") ambiTarget = targets?.monitors.find((m) => m.primary)?.id ?? "";
+    if (ambiSource === "window") ambiTarget = targets?.windows[0]?.key ?? "";
+    if (ambiSource === "wallpaper") ambiTarget = wallSource === "engine" ? `engine${wallMonitor ? `:${wallMonitor}` : ""}` : "windows";
+    p({ ambiSource, ambiTarget });
+  };
+
+  const windowMissing = cfg.ambiSource === "window" && cfg.ambiTarget && targets && !targets.windows.some((w) => w.key === cfg.ambiTarget);
+
+  return (
+    <div className="ambi-pick">
+      <span className="ambi-q">O que o Ambilight deve acompanhar?</span>
+      <div className="ambi-options">
+        {(
+          [
+            { v: "screen", icon: "monitor", t: "Tela inteira", d: "Tudo que aparece no monitor" },
+            { v: "window", icon: "app", t: "Um aplicativo", d: "Só a janela de um programa ou jogo" },
+            { v: "wallpaper", icon: "image", t: "Wallpaper", d: "O papel de parede, mesmo coberto por janelas" },
+          ] as const
+        ).map((o) => (
+          <button key={o.v} className={`ambi-opt ${cfg.ambiSource === o.v ? "on" : ""}`} onClick={() => setSource(o.v)}>
+            <Icon name={o.icon} />
+            <strong>{o.t}</strong>
+            <span className="small muted">{o.d}</span>
+          </button>
+        ))}
+      </div>
+
+      {cfg.ambiSource === "screen" && (
+        <div className="row tight">
+          <div style={{ flex: 1 }}>
+            <Select
+              value={cfg.ambiTarget || targets?.monitors.find((m) => m.primary)?.id || ""}
+              onChange={(ambiTarget) => p({ ambiTarget })}
+              options={(targets?.monitors ?? []).map((m, i) => ({ value: m.id, label: `Monitor ${i + 1}${m.primary ? " (principal)" : ""} — ${m.width}×${m.height}` }))}
+            />
+          </div>
+          <button className="btn icon" title="Atualizar lista" disabled={loading} onClick={load}>
+            <Icon name="refresh" size={16} />
+          </button>
+        </div>
+      )}
+
+      {cfg.ambiSource === "window" && (
+        <>
+          <div className="row tight">
+            <div style={{ flex: 1 }}>
+              <Select
+                value={cfg.ambiTarget}
+                onChange={(ambiTarget) => p({ ambiTarget })}
+                options={[
+                  ...(windowMissing ? [{ value: cfg.ambiTarget, label: `${cfg.ambiTarget.split("|")[0]} (fechado agora)` }] : []),
+                  ...(targets?.windows ?? []).map((w) => ({ value: w.key, label: `${w.app.replace(/\.exe$/i, "")} — ${w.title.slice(0, 60)}` })),
+                ]}
+              />
+            </div>
+            <button className="btn icon" title="Atualizar lista de janelas" disabled={loading} onClick={load}>
+              <Icon name="refresh" size={16} />
+            </button>
+          </div>
+          <span className="small muted">Se a janela fechar ou for minimizada, as teclas apagam até ela voltar. Se o título mudar (ex.: outra aba), ele continua seguindo o mesmo programa.</span>
+        </>
+      )}
+
+      {cfg.ambiSource === "wallpaper" && (
+        <Segmented
+          value={cfg.ambiTarget.startsWith("engine") ? "engine" : "windows"}
+          onChange={(v) => p({ ambiTarget: v === "engine" ? `engine${wallMonitor ? `:${wallMonitor}` : ""}` : "windows" })}
+          options={[
+            { value: "windows", label: "Wallpaper do Windows" },
+            { value: "engine", label: "Wallpaper Engine (prévia animada)" },
+          ]}
+        />
+      )}
     </div>
   );
 }

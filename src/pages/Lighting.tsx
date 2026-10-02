@@ -22,6 +22,8 @@ export const DEFAULT_STREAM: StreamConfig = {
   saturation: 1.4,
   workMin: 25,
   breakMin: 5,
+  ambiSource: "screen",
+  ambiTarget: "",
 };
 
 export function LightingPage() {

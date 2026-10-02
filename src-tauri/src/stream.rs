@@ -116,7 +116,7 @@ pub fn start(app: AppHandle) {
                     let af = audio.as_mut().map(|a| a.frame(cfg.sensitivity)).unwrap_or_default();
                     music.frame(MusicStyle::parse(&cfg.music_style), &af, ca, cb, bright, started.elapsed().as_secs_f32())
                 }
-                "ambilight" => match capturer.frame(cfg.saturation) {
+                "ambilight" => match capturer.frame(&cfg.ambi_source, &cfg.ambi_target, cfg.saturation) {
                     Ok(f) => {
                         // suaviza para não piscar
                         let out = match ambi_prev {

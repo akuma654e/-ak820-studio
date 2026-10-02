@@ -444,16 +444,22 @@ pub fn pomodoro_reset(state: State<AppState>) {
 // ------------------------------------------------------------------ atualizações
 
 #[tauri::command]
-pub async fn update_check(app: AppHandle) -> R<crate::updates::UpdateStatus> {
-    crate::updates::check(&app).await
+pub fn build_info(app: AppHandle) -> crate::updates::BuildInfo {
+    crate::updates::info(&app)
 }
 
+/// Abre o PowerShell com scripts\update.ps1 (git pull + compilar + reinstalar).
 #[tauri::command]
-pub async fn update_install(app: AppHandle) -> R<()> {
-    crate::updates::install(&app).await
+pub fn update_run(app: AppHandle) -> R<()> {
+    crate::updates::run(&app)
 }
 
 #[tauri::command]
 pub fn app_version(app: AppHandle) -> String {
-    crate::updates::current(&app)
+    app.package_info().version.to_string()
+}
+
+#[tauri::command]
+pub async fn ambilight_targets() -> R<crate::screen::Targets> {
+    blocking(crate::screen::targets).await
 }

@@ -20,7 +20,7 @@ import {
   type Rendered,
   type Source,
 } from "../lib/imaging";
-import { background, BACKGROUNDS, marquee, slideshow, type BackgroundKind, type MarqueeOpts } from "../lib/generators";
+import { background, BACKGROUNDS, marquee, slideshow, type BackgroundKind, type MarqueeOpts, type SlideshowOpts } from "../lib/generators";
 import { exportGif, exportPng } from "../lib/exporters";
 import { ScreenPreview } from "../components/ScreenPreview";
 import { Card, ColorField, Icon, Modal, Segmented, Select, Slider, Toggle } from "../components/ui";
@@ -315,7 +315,7 @@ export function DisplayPage({ active }: { active: boolean }) {
             </div>
           </div>
           <h2>{loading ? "Abrindo…" : "Arraste uma imagem ou GIF aqui"}</h2>
-          <p className="muted">PNG, JPG, WebP ou GIF. Várias imagens viram um slideshow. Também dá para colar com Ctrl+V.</p>
+          <p className="muted">PNG, JPG, WebP ou GIF. Várias imagens ou GIFs viram um slideshow. Também dá para colar com Ctrl+V.</p>
           <div className="row">
             <button className="btn primary" disabled={loading} onClick={() => fileRef.current?.click()}>
               <Icon name="file" /> Escolher arquivo
@@ -658,10 +658,12 @@ function BackgroundDialog({ onClose, onCreate }: { onClose: () => void; onCreate
   );
 }
 
-function SlideshowDialog({ files, onClose, onPick, onCreate }: { files: File[]; onClose: () => void; onPick: () => void; onCreate: (o: { holdMs: number; transition: "none" | "fade" | "slide"; transitionFrames: number }) => void }) {
+function SlideshowDialog({ files, onClose, onPick, onCreate }: { files: File[]; onClose: () => void; onPick: () => void; onCreate: (o: SlideshowOpts) => void }) {
   const [hold, setHold] = useState(2500);
   const [transition, setTransition] = useState<"none" | "fade" | "slide">("fade");
   const [tf, setTf] = useState(6);
+  const [gifMode, setGifMode] = useState<"once" | "fill">("fill");
+  const hasGif = files.some((f) => /gif|webp/i.test(f.type || f.name));
   return (
     <Modal
       title="Slideshow"
@@ -671,7 +673,7 @@ function SlideshowDialog({ files, onClose, onPick, onCreate }: { files: File[]; 
           <button className="btn ghost" onClick={onClose}>
             Cancelar
           </button>
-          <button className="btn primary" disabled={files.length < 2} onClick={() => onCreate({ holdMs: hold, transition, transitionFrames: tf })}>
+          <button className="btn primary" disabled={files.length < 2} onClick={() => onCreate({ holdMs: hold, transition, transitionFrames: tf, gifMode })}>
             Criar slideshow
           </button>
         </>
@@ -679,15 +681,30 @@ function SlideshowDialog({ files, onClose, onPick, onCreate }: { files: File[]; 
     >
       {files.length < 2 ? (
         <div className="row">
-          <p className="muted">Escolha duas ou mais imagens.</p>
+          <p className="muted">Escolha duas ou mais imagens ou GIFs.</p>
           <button className="btn" onClick={onPick}>
             <Icon name="file" /> Escolher imagens
           </button>
         </div>
       ) : (
-        <p className="muted">{files.length} imagens: {files.map((f) => f.name).join(", ").slice(0, 160)}</p>
+        <p className="muted">
+          {files.length} arquivos: {files.map((f) => f.name).join(", ").slice(0, 160)}
+        </p>
       )}
-      <Slider label="Tempo de cada imagem" value={hold} min={500} max={10000} step={250} onChange={setHold} format={(v) => `${(v / 1000).toFixed(1)} s`} />
+      {hasGif && (
+        <div className="field">
+          <span>GIFs animados</span>
+          <Segmented
+            value={gifMode}
+            onChange={setGifMode}
+            options={[
+              { value: "fill", label: "Repetir até completar o tempo" },
+              { value: "once", label: "Tocar uma vez" },
+            ]}
+          />
+        </div>
+      )}
+      <Slider label={hasGif ? "Tempo de cada slide (imagens e GIFs repetidos)" : "Tempo de cada imagem"} value={hold} min={500} max={10000} step={250} onChange={setHold} format={(v) => `${(v / 1000).toFixed(1)} s`} />
       <Segmented
         value={transition}
         onChange={setTransition}

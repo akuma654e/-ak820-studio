@@ -4,7 +4,7 @@ Software alternativo (Windows) para o teclado **AJAZZ AK820 Pro**, no lugar do p
 Funciona com o **firmware original**, sem precisar gravar nada no teclado.
 
 ### Tela (editor)
-- Abre PNG, JPG, WebP e GIF/WebP animado, ou cola com **Ctrl+V**; várias imagens viram **slideshow** (com transição esmaecer/deslizar).
+- Abre PNG, JPG, WebP e GIF/WebP animado, ou cola com **Ctrl+V**; várias imagens **e GIFs** viram **slideshow** (com transição esmaecer/deslizar).
 - Geradores: **letreiro animado** (texto rolando) e **fundos animados** (plasma, Matrix, fogo, estrelas, ondas, túnel…).
 - Zoom, arrastar, girar, espelhar, cor de fundo; brilho, contraste, saturação, **matiz**, **filtros** (P&B, sépia, negativo, vintage, neon…), **pixel art**, **vinheta** e desfoque.
 - Texto com **fontes**, posição livre, contorno, **brilho neon** e **piscar**.
@@ -23,7 +23,7 @@ Funciona com o **firmware original**, sem precisar gravar nada no teclado.
 - **Visualizador de música nas teclas**: ouve o som do PC (loopback do Windows, sem cabo virtual) — estilos Equalizador, Pulso, Arco-íris e Ondas.
 - **Tocando agora na tela**: capa do álbum + nome da música (Spotify, YouTube, Apple Music…), troca sozinho a cada música.
 - **Wallpaper do Windows ou do Wallpaper Engine** na tela (prévias animadas funcionam) e **cor do wallpaper no RGB**, automático quando o wallpaper muda.
-- **Ambilight**: as teclas copiam as cores do monitor em tempo real.
+- **Ambilight**: as teclas copiam as cores em tempo real — de um monitor inteiro, da janela de um aplicativo específico ou do wallpaper (inclusive a prévia animada do Wallpaper Engine).
 - **Clima na tela** (Open-Meteo) com atualização automática e **Pomodoro nas teclas**.
 
 ### Automação e sistema
@@ -39,34 +39,36 @@ Funciona com o **firmware original**, sem precisar gravar nada no teclado.
   (o 2.4G e o Bluetooth não expõem a interface de configuração).
 - **Feche o software oficial da AJAZZ** (inclusive na bandeja), porque os dois disputam a mesma interface.
 
-## Atualizações automáticas (GitHub)
+## Instalar e atualizar (pelo GitHub, sem instalador)
 
-1. Uma vez só: `powershell -ExecutionPolicy Bypass -File scripts\setup-github.ps1`
-   (cria a chave de assinatura, envia o código para um repositório **público** seu e cadastra a chave no GitHub).
-2. A cada versão nova: `powershell -ExecutionPolicy Bypass -File scripts\release.ps1`
-   (pergunta o número da versão e o que mudou, envia a tag e o GitHub compila e publica).
-3. Instale uma vez o instalador da página **Releases**. Daí em diante o app avisa
-   “Versão X disponível” e se atualiza com um clique, mantendo galeria e configurações.
+O app é compilado no seu PC a partir do código do repositório — não há `.exe`/`.msi` publicados.
 
-A chave fica em `%USERPROFILE%\.tauri\` — faça backup dela; sem ela não dá para publicar atualizações.
-Compilações locais (`build-windows.ps1`) funcionam normalmente, só não se atualizam sozinhas.
-
-## Compilar
-
-### Opção 1: GitHub Actions (sem instalar nada)
-
-1. Crie um repositório no GitHub e envie esta pasta.
-2. O workflow `.github/workflows/build.yml` roda sozinho a cada push.
-3. Baixe o instalador em **Actions → Build Windows → Artifacts → AK820-Studio-Windows**.
-
-### Opção 2: no seu PC
+**Primeira vez**
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\build-windows.ps1
+gh repo clone akuma654e/-ak820-studio
+cd .\-ak820-studio          # o ".\" é necessário porque o nome começa com "-"
+powershell -ExecutionPolicy Bypass -File scripts\update.ps1
 ```
 
-O script instala o Node.js, o Rust e o Visual Studio Build Tools (C++) pelo `winget`, se faltarem,
-e gera o instalador em `target\release\bundle\nsis\`.
+O `update.ps1` instala o que faltar (Git, Node.js, Rust e Build Tools do Visual Studio pelo `winget`),
+compila, copia o app para `%LOCALAPPDATA%\AK820 Studio` e cria atalhos no Menu Iniciar e na Área de Trabalho.
+
+**Atualizações**
+
+O app compara o commit com que foi compilado com o último commit do GitHub. Quando há novidade,
+aparece **“Atualização disponível”** com a lista de mudanças; o botão **Atualizar agora** abre o
+PowerShell, faz `git pull`, recompila e reabre o app (galeria e configurações continuam).
+Também dá para rodar `scripts\update.ps1` a qualquer momento. Não mova a pasta clonada depois de instalar.
+
+**Publicar mudanças** (quem edita o código)
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\release.ps1
+```
+
+Mostra os arquivos alterados, pergunta a versão (opcional) e o que mudou, registra no `CHANGELOG.md`,
+faz o commit e o `git push`. O repositório precisa ser **público** para o app consultar os commits.
 
 Para desenvolver: `npm install` e `npm run tauri dev`. Rodando só `npm run dev`, a interface abre
 no navegador em **modo demonstração** (nada é enviado ao teclado).
